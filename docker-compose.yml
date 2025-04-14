@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+
+  backend:
+    build:
+      context: ./IoT_faultDetection
+    container_name: django_backend
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py clear_faults &&
+             python manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - ./IoT_faultDetection:/app
+    working_dir: /app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - rabbitmq
+
+  sensor_simulator:
+    build:
+      context: ./IoT_faultDetection
+    container_name: sensor_simulator
+    command: python -u faultDetection/agents/sensor_simulator.py
+    depends_on:
+      - backend
+      - rabbitmq
+
+  worker:
+    build:
+      context: ./IoT_faultDetection
+    container_name: rabbitmq_worker
+    command: python -u faultDetection/agents/worker.py
+    depends_on:
+      - backend
+      - rabbitmq
+
+  frontend:
+    container_name: react-frontend
+    restart: always
+    build:
+      context: ./fault_detection_management
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./fault_detection_management:/src/app
+      - /src/app/node_modules
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+    working_dir: /src/app
+    command: ["npm", "run", "dev"]
